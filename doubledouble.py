@@ -37,48 +37,89 @@
 from __future__ import division
 from math import exp, frexp, ldexp, log, sqrt
 from numbers import Integral
+import numpy as np
 
+import numba
+
+
+@numba.njit
 def _two_sum_quick(x, y):
     r = x + y
     e = y - (r - x)
     return r, e
 
+
+@numba.njit
 def _two_sum(x, y):
     r = x + y
     t = r - x
     e = (x - (r - t)) + (y - t)
     return r, e
 
+
+@numba.njit
 def _two_difference(x, y):
     r = x - y
     t = r - x
     e = (x - (r - t)) - (y + t)
     return r, e
 
-try:
-    from math import fma
-    def _two_product(x, y):
-        r = x*y
-        e = fma(x, y, -r)
-        return r, e
-except ImportError:
-    def _two_product(x, y):
-        u = x*134217729.0
-        v = y*134217729.0
-        s = u - (u - x)
-        t = v - (v - y)
-        f = x - s
-        g = y - t
-        r = x*y
-        e = ((s*t - r) + s*g + f*t) + f*g
-        return r, e
+
+@numba.njit
+def _two_product(x, y):
+    u = x*134217729.0
+    v = y*134217729.0
+    s = u - (u - x)
+    t = v - (v - y)
+    f = x - s
+    g = y - t
+    r = x*y
+    e = ((s*t - r) + s*g + f*t) + f*g
+    return r, e
+
+
+@numba.njit
+def mul_double_double(ax, bx, ay, by):
+    r, e = _two_product(ax, bx)
+    e = e + ax * by + ay * bx
+    r, e = _two_sum_quick(r, e)
+    return r, e
+
+
+@numba.njit
+def rmul_double_double(ax, ay, other):
+    r, e = _two_product(other, ax)
+    e = e + other * ay
+    r, e = _two_sum_quick(r, e)
+    return r, e
+
+
+@numba.njit
+def add_double_double(ax, bx, ay, by):
+    r, e = _two_sum(ax, bx)
+    e = e + ay + by
+    r, e = _two_sum_quick(r, e)
+    return r, e
+
+
+@numba.njit
+def radd_double_double(ax, ay, other):
+    r, e = _two_sum(other, ax)
+    e = e + ay
+    r, e = _two_sum_quick(r, e)
+    return r, e
+
 
 class DoubleDouble(object):
     
     __slots__ = 'x', 'y'
     
-    def __init__(self, x, y=0.0):
-        self.x, self.y = float(x), float(y)
+    def __init__(self, x, y=None):
+        self.x = x #np.array(x, dtype=np.float64)
+        if y is None:
+            self.y = 0.0*x
+        else:
+            self.y = y #np.array(y, dtype=np.float64)
     
     def __copy__(self):
         return self
@@ -135,15 +176,11 @@ class DoubleDouble(object):
     def __add__(self, other):
         if not isinstance(other, DoubleDouble):
             return other + self
-        r, e = _two_sum(self.x, other.x)
-        e += self.y + other.y
-        r, e = _two_sum_quick(r, e)
+        r, e = add_double_double(self.x, other.x, self.y, other.y)
         return DoubleDouble(r, e)
     
     def __radd__(self, other):
-        r, e = _two_sum(other, self.x)
-        e += self.y
-        r, e = _two_sum_quick(r, e)
+        r, e = radd_double_double(self.x, self.y, other)
         return DoubleDouble(r, e)
     
     def __sub__(self, other):
@@ -163,15 +200,11 @@ class DoubleDouble(object):
     def __mul__(self, other):
         if not isinstance(other, DoubleDouble):
             return other*self
-        r, e = _two_product(self.x, other.x)
-        e += self.x*other.y + self.y*other.x
-        r, e = _two_sum_quick(r, e)
+        r, e = mul_double_double(self.x, other.x, self.y, other.y)
         return DoubleDouble(r, e)
     
     def __rmul__(self, other):
-        r, e = _two_product(other, self.x)
-        e += other*self.y
-        r, e = _two_sum_quick(r, e)
+        r, e = rmul_double_double(self.x, self.y, other)
         return DoubleDouble(r, e)
     
     def __truediv__(self, other):
@@ -273,11 +306,11 @@ class DoubleDouble(object):
         e = self.y/2**n
         return DoubleDouble(r, e), n
     
-    def __float__(self):
-        return self.x
+    # def __float__(self):
+    #     return self.x
     
     def __str__(self):
-        return str(float(self))
+        return str(self.x)
     
     def __repr__(self):
         if self.y < 0.0:
@@ -288,6 +321,7 @@ class DoubleDouble(object):
         if self.y < 0.0:
             return '(%s - %s)' % (self.x.hex(), (-self.y).hex())
         return '(%s + %s)' % (self.x.hex(), self.y.hex())
+
 
 _zero, _one = DoubleDouble(0.0), DoubleDouble(1.0)
 
