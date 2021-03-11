@@ -37,6 +37,7 @@
 from __future__ import division
 from math import exp, frexp, ldexp, log, sqrt
 from numbers import Integral
+import numbers
 import numpy as np
 
 import numba
@@ -321,6 +322,10 @@ class DoubleDouble(object):
         if self.y < 0.0:
             return '(%s - %s)' % (self.x.hex(), (-self.y).hex())
         return '(%s + %s)' % (self.x.hex(), self.y.hex())
+
+
+numbers.Real.register(DoubleDouble)
+DoubleDouble.dtype = np.object_
 
 
 _zero, _one = DoubleDouble(0.0), DoubleDouble(1.0)
